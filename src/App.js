@@ -11,14 +11,22 @@ function App() {
 
   const [selectedDay, setSelectedDay] = useState(null);
   const [note, setNote] = useState("");
-  const [notes, setNotes] = useState(() => {
-    const saved = localStorage.getItem("calendarNotes");
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [notes, setNotes] = useState({});
 
   useEffect(() => {
-    localStorage.setItem("calendarNotes", JSON.stringify(notes));
-  }, [notes]);
+    fetch("https://69a067083188b0b1d538a235.mockapi.io/api/1/moth")
+      .then(res => res.json())
+      .then(data => {
+        const formatted = {};
+        data.forEach(item => {
+          formatted[item.key] = {
+            text: item.text,
+            id: item.id
+          };
+        });
+        setNotes(formatted);
+      });
+  }, []);
 
   const months = [
     "Январь","Февраль","Март","Апрель","Май","Июнь",
@@ -44,16 +52,51 @@ function App() {
 
   const saveNote = () => {
     const key = `${selectedMonth}-${selectedDay}`;
-    setNotes({ ...notes, [key]: note });
+
+    const closeModal = () => setSelectedDay(null);
+
+    if (notes[key]?.id) {
+      fetch(`https://69a067083188b0b1d538a235.mockapi.io/api/1/moth/${notes[key].id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: key,
+          text: note
+        })
+      }).then(() => {
+        setNotes(prev => ({
+          ...prev,
+          [key]: { ...prev[key], text: note }
+        }));
+        closeModal();
+      });
+    } else {
+      fetch("https://69a067083188b0b1d538a235.mockapi.io/api/1/moth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: key,
+          text: note
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        setNotes(prev => ({
+          ...prev,
+          [key]: { text: note, id: data.id }
+        }));
+        closeModal();
+      });
+    }
   };
 
-  const renderMonth = (monthIndex, small = false) => {
+  const renderMonth = (monthIndex) => {
     const daysInMonth = getDaysInMonth(monthIndex);
     const firstDay = getFirstDay(monthIndex);
     const days = [];
 
     for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={"e" + i}></div>);
+      days.push(<div key={"empty" + i} className="empty-day"></div>);
     }
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -61,10 +104,11 @@ function App() {
       const holidayKey = `${monthIndex + 1}-${d}`;
 
       const isHoliday = holidays[holidayKey];
-      const hasNote = notes[key];
+      const hasNote = notes[key]?.text;
       const isToday =
         d === today.getDate() &&
-        monthIndex === today.getMonth();
+        monthIndex === today.getMonth() &&
+        currentYear === today.getFullYear();
 
       days.push(
         <div
@@ -72,12 +116,14 @@ function App() {
           onClick={() => {
             setSelectedMonth(monthIndex);
             setSelectedDay(d);
-            setNote(notes[key] || "");
+            setNote(notes[key]?.text || "");
+            setView("month");
           }}
           className={`day 
             ${isHoliday ? "holiday" : ""} 
             ${hasNote ? "noted" : ""} 
             ${isToday ? "today" : ""}`}
+          title={isHoliday ? holidays[holidayKey] : ""}
         >
           {d}
         </div>
@@ -85,16 +131,14 @@ function App() {
     }
 
     return (
-      <div
-        className={small ? "mini-month" : "big-month"}
-        onClick={() => small && setView("month")}
-      >
+      <div className="month-card">
         <h3>{months[monthIndex]}</h3>
-        <div className="week small">
-          <div>Пн</div><div>Вт</div><div>Ср</div>
-          <div>Чт</div><div>Пт</div><div>Сб</div><div>Вс</div>
+        <div className="weekdays">
+          <div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Вс</div>
         </div>
-        <div className="grid small">{days}</div>
+        <div className="days-grid">
+          {days}
+        </div>
       </div>
     );
   };
@@ -103,48 +147,35 @@ function App() {
     return (
       <div className="app">
         <div className="card big-card">
-          <h1>
-            Календарь {currentYear} — Сегодня: {todayString}
-          </h1>
-
+          <h1>Календарь {currentYear} — Сегодня: {todayString}</h1>
           <div className="year-grid">
-            {months.map((_, i) => (
-              <div key={i} onClick={() => {
-                setSelectedMonth(i);
-                setView("month");
-              }}>
-                {renderMonth(i, true)}
-              </div>
-            ))}
+            {months.map((_, i) => renderMonth(i))}
           </div>
         </div>
       </div>
     );
   }
 
+  // В режиме просмотра месяца
   return (
     <div className="app">
       <div className="card">
-        <button className="back" onClick={() => setView("year")}>
-          ← Назад
-        </button>
-
+        <button className="back" onClick={() => setView("year")}>← Назад</button>
         {renderMonth(selectedMonth)}
 
         {selectedDay && (
-          <div className="modal">
-            <div className="modal-box">
+          <div className="modal" onClick={() => setSelectedDay(null)}>
+            <div className="modal-box" onClick={e => e.stopPropagation()}>
               <h3>{selectedDay} {months[selectedMonth]}</h3>
 
               {holidays[`${selectedMonth + 1}-${selectedDay}`] && (
-                <div className="holiday-label">
-                  🔴 {holidays[`${selectedMonth + 1}-${selectedDay}`]}
-                </div>
+                <div className="holiday-label">🔴 {holidays[`${selectedMonth + 1}-${selectedDay}`]}</div>
               )}
 
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
+                placeholder="Введите заметку..."
               />
 
               <div className="modal-buttons">
